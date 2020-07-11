@@ -14,6 +14,9 @@
 #include <rclcpp/rclcpp.hpp>
 #include <image_transport/image_transport.h>
 #include <cv_bridge/cv_bridge.h>
+#include <message_filters/subscriber.h>
+// #include <message_filters/time_synchronizer.h>
+#include <message_filters/sync_policies/approximate_time.h>
 
 #include <opencv2/core/core.hpp>
 #include <opencv2/imgcodecs.hpp>
@@ -29,7 +32,7 @@
 #include <gperftools/profiler.h>
 #endif
 
-void mono_tracking(const std::shared_ptr<openvslam::config>& cfg, const std::string& vocab_file_path,
+void openvslam_tracking(const std::shared_ptr<openvslam::config>& cfg, const std::string& vocab_file_path,
                    const std::string& mask_img_path, const bool eval_log, const std::string& map_db_path) {
     // load the mask image
     const cv::Mat mask = mask_img_path.empty() ? cv::Mat{} : cv::imread(mask_img_path, cv::IMREAD_GRAYSCALE);
@@ -56,24 +59,49 @@ void mono_tracking(const std::shared_ptr<openvslam::config>& cfg, const std::str
     custom_qos.depth = 1;
 
     // run the SLAM as subscriber
-    image_transport::Subscriber sub = image_transport::create_subscription(
-        node.get(), "camera/image_raw", [&](const sensor_msgs::msg::Image::ConstSharedPtr& msg) {
+    // if (cfg->camera_->setup_type_ == openvslam::camera::setup_type_t::Monocular) {
+        // image_transport::Subscriber sub = image_transport::create_subscription(
+        //     node.get(), "camera/color/image_raw", [&](const sensor_msgs::msg::Image::ConstSharedPtr& msg) {
+        //         const auto tp_1 = std::chrono::steady_clock::now();
+        //         const auto timestamp = std::chrono::duration_cast<std::chrono::duration<double>>(tp_1 - tp_0).count();
+
+        //         // input the current frame and estimate the camera pose
+        //         SLAM.feed_monocular_frame(cv_bridge::toCvShare(msg, "bgr8")->image, timestamp, mask);
+                
+        //         const auto tp_2 = std::chrono::steady_clock::now();
+
+        //         const auto track_time = std::chrono::duration_cast<std::chrono::duration<double>>(tp_2 - tp_1).count();
+        //         track_times.push_back(track_time);
+        //     },
+        //     "raw", custom_qos);
+    // }
+    // else if (cfg->camera_->setup_type_ == openvslam::camera::setup_type_t::RGBD) {
+        // message_filters::Subscriber <sensor_msgs::msg::Image::ConstSharedPtr> rgbd_sub(node.get(), "camera/image_raw");
+        // message_filters::Subscriber <sensor_msgs::msg::Image::ConstSharedPtr> depth_sub(node.get(), "camera/depth_raw");
+        // message_filters::TimeSynchronizer<sensor_msgs::msg::Image::ConstSharedPtr, sensor_msgs::msg::Image::ConstSharedPtr> sync(rgbd_sub, depth_sub, 1);
+        //
+        //// working: approx. sync
+        message_filters::Subscriber<sensor_msgs::msg::Image> rgbd_sub(node.get(), "camera/color/image_raw", custom_qos);
+        message_filters::Subscriber<sensor_msgs::msg::Image> depth_sub(node.get(), "camera/aligned_depth_to_color/image_raw", custom_qos);
+        using rgbd_sync_policy = message_filters::sync_policies::ApproximateTime<sensor_msgs::msg::Image, sensor_msgs::msg::Image>;
+        message_filters::Synchronizer<rgbd_sync_policy> sync(rgbd_sync_policy(10), rgbd_sub, depth_sub); // rgbd_sync_policy(queue_size)
+        sync.registerCallback(std::bind([&](const sensor_msgs::msg::Image::ConstSharedPtr& rgb_img_msg, const sensor_msgs::msg::Image::ConstSharedPtr& depth_img_msg) {
             const auto tp_1 = std::chrono::steady_clock::now();
             const auto timestamp = std::chrono::duration_cast<std::chrono::duration<double>>(tp_1 - tp_0).count();
 
             // input the current frame and estimate the camera pose
-            SLAM.feed_monocular_frame(cv_bridge::toCvShare(msg, "bgr8")->image, timestamp, mask);
-
+            // std::cout<<"hello0" << std::endl;
+            SLAM.feed_monocular_frame(cv_bridge::toCvShare(rgb_img_msg, "bgr8")->image, timestamp, mask);
+            // SLAM.feed_RGBD_frame(cv_bridge::toCvShare(rgb_img_msg, "bgr8")->image, cv_bridge::toCvShare(depth_img_msg, "16UC1")->image, timestamp, mask);
             const auto tp_2 = std::chrono::steady_clock::now();
 
             const auto track_time = std::chrono::duration_cast<std::chrono::duration<double>>(tp_2 - tp_1).count();
             track_times.push_back(track_time);
-        },
-        "raw", custom_qos);
+        }, std::placeholders::_1, std::placeholders::_2));
+    // }
 
     rclcpp::executors::SingleThreadedExecutor exec;
     exec.add_node(node);
-
     // Pangolin needs to run in the main thread on OSX
     std::thread thread([&]() {
         exec.spin();
@@ -202,8 +230,10 @@ int main(int argc, char* argv[]) {
 #endif
 
     // run tracking
-    if (cfg->camera_->setup_type_ == openvslam::camera::setup_type_t::Monocular) {
-        mono_tracking(cfg, vocab_file_path->value(), mask_img_path->value(), eval_log->is_set(), map_db_path->value());
+    if (cfg->camera_->setup_type_ == openvslam::camera::setup_type_t::Monocular ||
+        cfg->camera_->setup_type_ == openvslam::camera::setup_type_t::RGBD ||
+        cfg->camera_->setup_type_ == openvslam::camera::setup_type_t::Stereo) {
+        openvslam_tracking(cfg, vocab_file_path->value(), mask_img_path->value(), eval_log->is_set(), map_db_path->value());
     }
     else {
         throw std::runtime_error("Invalid setup type: " + cfg->camera_->get_setup_type_string());
@@ -214,4 +244,4 @@ int main(int argc, char* argv[]) {
 #endif
 
     return EXIT_SUCCESS;
-}
+    }

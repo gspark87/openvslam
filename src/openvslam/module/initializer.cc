@@ -68,7 +68,9 @@ bool initializer::initialize(data::frame& curr_frm) {
             }
 
             // create new map if succeeded
+            spdlog::info("OKAY create");
             create_map_for_monocular(curr_frm);
+            spdlog::info("MapCreated.... but..");
             break;
         }
         case camera::setup_type_t::Stereo:
@@ -229,24 +231,29 @@ bool initializer::create_map_for_monocular(data::frame& curr_frm) {
         // add the landmark to the map DB
         map_db_->add_landmark(lm);
     }
-
+    spdlog::info("global bundle adjustment go");
     // global bundle adjustment
     const auto global_bundle_adjuster = optimize::global_bundle_adjuster(map_db_, num_ba_iters_, true);
     global_bundle_adjuster.optimize();
+    spdlog::info("Optimized :) ");
 
     // scale the map so that the median of depths is 1.0
     const auto median_depth = init_keyfrm->compute_median_depth(init_keyfrm->camera_->model_type_ == camera::model_type_t::Equirectangular);
     const auto inv_median_depth = 1.0 / median_depth;
+    spdlog::info("landmark something");
     if (curr_keyfrm->get_num_tracked_landmarks(1) < min_num_triangulated_ && median_depth < 0) {
         spdlog::info("seems to be wrong initialization, resetting");
         state_ = initializer_state_t::Wrong;
         return false;
     }
+    spdlog::info("Scale map!!");
     scale_map(init_keyfrm, curr_keyfrm, inv_median_depth * scaling_factor_);
 
+spdlog::info("set cam pose");
     // update the current frame pose
     curr_frm.set_cam_pose(curr_keyfrm->get_cam_pose());
 
+spdlog::info("set origin keyframe");
     // set the origin keyframe
     map_db_->origin_keyfrm_ = init_keyfrm;
 
