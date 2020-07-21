@@ -91,8 +91,8 @@ void openvslam_tracking(const std::shared_ptr<openvslam::config>& cfg, const std
 
             // input the current frame and estimate the camera pose
             // std::cout<<"hello0" << std::endl;
-            SLAM.feed_monocular_frame(cv_bridge::toCvShare(rgb_img_msg, "bgr8")->image, timestamp, mask);
-            // SLAM.feed_RGBD_frame(cv_bridge::toCvShare(rgb_img_msg, "bgr8")->image, cv_bridge::toCvShare(depth_img_msg, "16UC1")->image, timestamp, mask);
+            // SLAM.feed_monocular_frame(cv_bridge::toCvShare(rgb_img_msg, "bgr8")->image, timestamp, mask);
+            SLAM.feed_RGBD_frame(cv_bridge::toCvShare(rgb_img_msg, "bgr8")->image, cv_bridge::toCvShare(depth_img_msg, "16UC1")->image, timestamp, mask);
             const auto tp_2 = std::chrono::steady_clock::now();
 
             const auto track_time = std::chrono::duration_cast<std::chrono::duration<double>>(tp_2 - tp_1).count();
